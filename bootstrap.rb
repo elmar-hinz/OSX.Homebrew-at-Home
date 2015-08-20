@@ -5,32 +5,32 @@ require 'time'
 class OsxBootstrapper
 
     def main
-        @@home = ENV.fetch('HOME')
         intro
         backup
     end
 
     def backup
+        @@home = ENV.fetch('HOME')
         Interface.h2 'Preparations'
         Interface.pre Content::PREPARATIONS
         Interface.confirm? 'Go on'
+        time = Time.now.strftime('%Y-%m-%d_%H-%M-%S')
         [@@home + '/.bashrc', @@home + '/.bash_profile'].each do |filename|
             basename = File.basename filename
             dirname = File.dirname filename
-            time = Time.now.strftime('%Y-%m-%d_%H-%M-%S')
             backupbase = basename + '.backup.' + time
             backupfile = dirname + '/' + backupbase 
             if File.exist? filename
                 Interface.h3 'Preparations: ' + basename
-                Interface.pre '
-        A file "' + filename + '" is existing.
-        I want to rename it to "' + backupbase + '".
-
-        Enter stop to quit bootstrapping.
-                '
+                Interface.pre sprintf(Content::BACKUPINFO, filename, backupbase) 
                 answer = Interface.query? ('Rename ' + basename + ' -> ' + backupbase + '?'), [:yes, :stop], :yes
-                exit if answer == :stop
-                puts 'Moving ' + filename + ' to ' + backupfile if answer == :yes
+                fatal 'STOP', 'You stopped bootstrapping.' if answer == :stop
+                begin
+                    File.rename filename, backupfile
+                    Interface.success 'Moving ' + filename + "\n to " + backupfile 
+                rescue SystemCallError
+                    Interface.fatal 'Moving ' + filename + "\n to " + backupfile 
+                end
                 Interface.confirm? 
             end
         end
@@ -48,9 +48,39 @@ class OsxBootstrapper
         Interface.confirm?
     end
 
+    def fatal title, text
+        Interface.fatal title, text
+        exit
+    end
+
 end
 
 module Interface
+
+    def self.success title, text = nil
+        self.bullet :success, title, text
+    end
+
+    def self.warn title, text = nil
+        self.bullet :warn, title, text
+    end
+
+    def self.error title, text = nil
+        self.bullet :error, title, text
+    end
+
+    def self.fatal title, text = nil
+        self.bullet :error, 'Fatal: ' + title, text
+    end
+
+    def self.bullet(status, title , text = NIL)
+        prefixes = {} 
+        prefixes[:success] = "\t\033[1;32m✔ "
+        prefixes[:warn]    = "\t\033[1;33m➜ "
+        prefixes[:error]   = "\t\033[1;31m✖ "
+        puts prefixes[status] << title << "\033[0m" 
+        puts "\t" << text if text
+    end
 
     def self.pre text
         puts text
@@ -101,7 +131,7 @@ module Interface
             option.to_s
         }
         puts
-        puts question << ' (' << displayed_options.join('/') << ')'
+        puts "\t" + question << ' (' << displayed_options.join('/') << ')'
         result = nil
         until result
             answer = gets.chomp
@@ -168,6 +198,13 @@ module Content
 
     I will backup "~/.bash_profile" and "~/.bashrc" for you.
     You will have to give your confirmation in each step.
+    '
+
+    BACKUPINFO = '
+        A file "%s" is existing.
+        I want to rename it to "%s".
+
+        Enter stop to quit bootstrapping.
     '
 
 end
