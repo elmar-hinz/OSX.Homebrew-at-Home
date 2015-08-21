@@ -2,23 +2,54 @@
 
 require 'time'
 
-class OsxBootstrapper
+class MeLordBootstrapper
 
     def main
+        @timestamp = Time.now.strftime('%Y-%m-%d_%H-%M-%S')
         intro
+        interview
         backup
+        reconfigure
+        homebrew
+        ansible
+        report
+    end
+
+    def intro
+        Interface.h1 'The Zen Path of Bootstrapping'
+        Interface.pre Content::INTRO_TEXT
+        Interface.confirm? 
+        Interface.h2 'Me'
+        Interface.pre Content::ABOUT_ME
+        @install_me = Interface.yes_no? 'Do you want to install *Me*?'
+        Interface.h2 'Lord'
+        Interface.pre Content::ABOUT_LORD
+        @install_lord = Interface.yes_no? 'Do you want to install Lord?'
+    end
+
+    def interview
+        Interface.h2 'Customization'
+        Interface.pre Content::HOMEBREW_CUSTOMIZING
+        @homebrew_taste = Interface.query? 'Select your installation type', [:home, :library, :user], :home 
+        if @install_lord == :yes then
+            Interface.pre Content::LORD_CUSTOMIZING
+            @lord_taste = Interface.query? 'Select your installation type', [:home, :library, :user], :home 
+        end
+        if @install_me == :yes then
+            Interface.pre Content::ME_CUSTOMIZING
+            @me_taste = Interface.query? 'Select your installation type', [:home, :library, :user], :home 
+        end
     end
 
     def backup
-        @@home = ENV.fetch('HOME')
+        home = ENV.fetch('HOME')
         Interface.h2 'Preparations'
         Interface.pre Content::PREPARATIONS
         Interface.confirm? 'Go on'
-        time = Time.now.strftime('%Y-%m-%d_%H-%M-%S')
-        [@@home + '/.bashrc', @@home + '/.bash_profile'].each do |filename|
+        [home + '/.bashrc', home + '/.bash_profile'].each do |filename|
             basename = File.basename filename
             dirname = File.dirname filename
-            backupbase = basename + '.backup.' + time
+            backupbase = basename + '.backup.' + @timestamp
             backupfile = dirname + '/' + backupbase 
             if File.exist? filename
                 Interface.h3 'Preparations: ' + basename
@@ -29,28 +60,47 @@ class OsxBootstrapper
                     File.rename filename, backupfile
                     Interface.success 'Moving ' + filename + "\n to " + backupfile 
                 rescue SystemCallError
-                    Interface.fatal 'Moving ' + filename + "\n to " + backupfile 
+                    fatal 'Moving ' + filename + "\n to " + backupfile 
                 end
                 Interface.confirm? 
             end
         end
     end
 
-    def intro
-        Interface.h1 'The Zen Path of Bootstrapping'
-        Interface.pre Content::INTRO_TEXT
-        Interface.confirm? 
-        Interface.h2 'Me'
-        Interface.pre Content::ABOUT_ME
-        Interface.confirm?
-        Interface.h2 'Lord'
-        Interface.pre Content::ABOUT_LORD
-        Interface.confirm?
+    def reconfigure
+    end
+
+    def homebrew
+    end
+    
+    def ansible
+    end
+
+    def report
     end
 
     def fatal title, text
         Interface.fatal title, text
         exit
+    end
+
+end
+
+class String
+    def red! 
+        replace "\033[1;31m" + self + "\033[0m"
+    end
+
+    def green! 
+        replace "\033[1;32m" + self  + "\033[0m"
+    end
+
+    def yellow!
+        replace "\033[1;33m" +  self + "\033[0m"
+    end
+
+    def blue!
+        replace "\033[1;34m" + self + "\033[0m"
     end
 
 end
@@ -105,13 +155,17 @@ module Interface
         puts
         puts
         puts char * width
-        puts (' ' * ((width - title.length)/2)) << title
+        puts (' ' * ((width - title.length)/2)) << title.red!
         puts char * width
         puts
     end
 
     def self.confirm? question = '' 
-        puts "    " << question << "\t\tHit [ENTER]"
+        if question.empty? then
+            puts ' ➜  Hit ' + '[ENTER]'.green!
+        else
+            puts "   " << question << " ➜  Hit " + "[ENTER]".green!
+        end
         gets.chomp
     end
 
@@ -126,12 +180,12 @@ module Interface
     def self.query? question, options, default
         displayed_options = options.map { |option| 
             if option == default then
-                option = option.to_s.capitalize 
+                option = option.to_s.capitalize.green!
             end
             option.to_s
         }
         puts
-        puts "\t" + question << ' (' << displayed_options.join('/') << ')'
+        puts " ➜   " + question << ' (' << displayed_options.join('/') << ')'
         result = nil
         until result
             answer = gets.chomp
@@ -151,16 +205,15 @@ end
 module Content
 
     INTRO_TEXT = '
-    The Bootstrapper will install basic software:
+    I will install this basic software:
 
-        * Homebrew
-        * Ansible
+        ✔ Homebrew
+        ✔ Ansible
 
-    After doing this common setup it offers you to additionally
-    install two admin tools.
+    I offer you the possibility to install two optional admin tools:
 
-        * Me
-        * Lord
+        ✔ Me
+        ✔ Lord
     '
 
     ABOUT_ME = '
@@ -172,10 +225,10 @@ module Content
     and ready to be customized to suit your personal needs.
 
     Me enables you to maintain your dotfiles in a central 
-    git repository like Github to make them accessible from 
+    Git repository like Github to make them accessible from 
     multiple machines. 
     
-    This repository can also reside on a personal USB stick.
+    This repository can reside on a personal USB stick.
     '
 
     ABOUT_LORD = '
@@ -192,6 +245,30 @@ module Content
     in a unified manner Lord manages admin tools.
     '
 
+    HOMEBREW_CUSTOMIZING = '
+    Homebrew prefix:
+
+        ✔ home:     ~/Homebrew/
+        ✔ library:  ~/Library/Homebrew/
+        ✔ user:     (defined by yourself)
+    '
+
+    ME_CUSTOMIZING = '
+    Home of Me:
+
+        ✔ home:     ~/Me/
+        ✔ library:  ~/Library/Me/
+        ✔ user:     (defined by yourself)
+    '
+
+    LORD_CUSTOMIZING = '
+    Home of Lord:
+
+        ✔ home:     ~/Lord/
+        ✔ library:  ~/Library/Lord/
+        ✔ user:     (defined by yourself)
+    '
+
     PREPARATIONS = '
     To set up a clean environment for bootstrapping
     very few preparations are required now. 
@@ -201,13 +278,18 @@ module Content
     '
 
     BACKUPINFO = '
-        A file "%s" is existing.
-        I want to rename it to "%s".
+    A file "%s" is existing.
+    I want to rename it to "%s".
 
-        Enter stop to quit bootstrapping.
+    Enter stop to quit bootstrapping.
     '
 
 end
 
-OsxBootstrapper.new.main
+def test
+end
+
+# test; exit
+
+MeLordBootstrapper.new.main
 
