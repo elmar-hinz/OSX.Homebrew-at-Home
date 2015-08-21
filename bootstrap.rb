@@ -1,13 +1,15 @@
 #! /usr/bin/env ruby
+# vim: tabstop=4 shiftwidth=4 expandtab fdm=syntax
 
 require 'time'
+require "readline"
 
 class MeLordBootstrapper
 
     def main
-        @timestamp = Time.now.strftime('%Y-%m-%d_%H-%M-%S')
+        init
         intro
-        interview
+        homes
         backup
         reconfigure
         homebrew
@@ -15,10 +17,16 @@ class MeLordBootstrapper
         report
     end
 
+    def init
+        @timestamp = Time.now.strftime('%Y-%m-%d_%H-%M-%S')
+        @home = ENV.fetch('HOME')
+        @library = @home + '/Library'
+    end
+
     def intro
         Interface.h1 'The Zen Path of Bootstrapping'
         Interface.pre Content::INTRO_TEXT
-        Interface.confirm? 
+        Interface.confirm? "Go on!"
         Interface.h2 'Me'
         Interface.pre Content::ABOUT_ME
         @install_me = Interface.yes_no? 'Do you want to install *Me*?'
@@ -27,26 +35,53 @@ class MeLordBootstrapper
         @install_lord = Interface.yes_no? 'Do you want to install Lord?'
     end
 
-    def interview
+    def homes
         Interface.h2 'Customization'
-        Interface.pre Content::HOMEBREW_CUSTOMIZING
-        @homebrew_taste = Interface.query? 'Select your installation type', [:home, :library, :user], :home 
+        @homebrew_home = home? 'Homebrew Prefix', Content::HOMEBREW_HOME, '/Homebrew'
         if @install_lord == :yes then
-            Interface.pre Content::LORD_CUSTOMIZING
-            @lord_taste = Interface.query? 'Select your installation type', [:home, :library, :user], :home 
+            @lord_home = home? 'Home of Lord', Content::LORD_HOME, '/Lord' 
         end
         if @install_me == :yes then
-            Interface.pre Content::ME_CUSTOMIZING
-            @me_taste = Interface.query? 'Select your installation type', [:home, :library, :user], :home 
+            @me_home = home? 'Home of Me', Content::ME_HOME, '/Me' 
         end
     end
 
+    def home? title, intro, directory
+        Interface.h3 title
+        Interface.pre intro
+        taste = Interface.query? 'Select your installation type!', [:home, :library, :user], :home 
+        if taste == :home then
+            home = @home  + directory
+        elsif taste == :library then
+            home = @library + directory
+        elsif taste == :user then
+            text = 'Please set your path (without the trailing directory "%s")'
+            path =  path?(sprintf(text, directory), @home)
+            home = path + directory
+        end
+        Interface.pre ' => Home: ' + home.green
+        puts
+        Interface.confirm?
+        home
+    end
+
+    def path? question, prefill
+        Interface.p question
+        Interface.p '(Use Tab for autocompletion)'.yellow
+        Readline.pre_input_hook = proc {
+            Readline.insert_text prefill
+            Readline.redisplay
+        }
+        line = Readline.readline(' > ').gsub(/\/$/, '') 
+        Readline.pre_input_hook = nil
+        line
+    end
+
     def backup
-        home = ENV.fetch('HOME')
         Interface.h2 'Preparations'
         Interface.pre Content::PREPARATIONS
-        Interface.confirm? 'Go on'
-        [home + '/.bashrc', home + '/.bash_profile'].each do |filename|
+        Interface.confirm?
+        [@home + '/.bashrc', @home + '/.bash_profile'].each do |filename|
             basename = File.basename filename
             dirname = File.dirname filename
             backupbase = basename + '.backup.' + @timestamp
@@ -58,9 +93,9 @@ class MeLordBootstrapper
                 fatal 'STOP', 'You stopped bootstrapping.' if answer == :stop
                 begin
                     File.rename filename, backupfile
-                    Interface.success 'Moving ' + filename + "\n to " + backupfile 
+                    Interface.success 'Moving ' + filename,  "to " + backupfile 
                 rescue SystemCallError
-                    fatal 'Moving ' + filename + "\n to " + backupfile 
+                    fatal 'Moving ' + filename,  "to " + backupfile 
                 end
                 Interface.confirm? 
             end
@@ -82,25 +117,6 @@ class MeLordBootstrapper
     def fatal title, text
         Interface.fatal title, text
         exit
-    end
-
-end
-
-class String
-    def red! 
-        replace "\033[1;31m" + self + "\033[0m"
-    end
-
-    def green! 
-        replace "\033[1;32m" + self  + "\033[0m"
-    end
-
-    def yellow!
-        replace "\033[1;33m" +  self + "\033[0m"
-    end
-
-    def blue!
-        replace "\033[1;34m" + self + "\033[0m"
     end
 
 end
@@ -136,6 +152,10 @@ module Interface
         puts text
     end
 
+    def self.p text
+        puts '    ' + text.strip.gsub("\n", ' ')
+    end
+
     def self.h1 title
         self.h title, '+'
     end
@@ -155,16 +175,16 @@ module Interface
         puts
         puts
         puts char * width
-        puts (' ' * ((width - title.length)/2)) << title.red!
+        puts (' ' * ((width - title.length)/2)) << title.red
         puts char * width
         puts
     end
 
     def self.confirm? question = '' 
         if question.empty? then
-            puts ' ➜  Hit ' + '[ENTER]'.green!
-        else
-            puts "   " << question << " ➜  Hit " + "[ENTER]".green!
+            puts ' ➜  Hit ' + '[ENTER]'.green
+        else     
+            puts "    " << question << " ➜  Hit " + "[ENTER]".green
         end
         gets.chomp
     end
@@ -180,15 +200,15 @@ module Interface
     def self.query? question, options, default
         displayed_options = options.map { |option| 
             if option == default then
-                option = option.to_s.capitalize.green!
+                option = option.to_s.capitalize.green
             end
             option.to_s
         }
         puts
-        puts " ➜   " + question << ' (' << displayed_options.join('/') << ')'
+        puts " ➜  " + question << ' (' << displayed_options.join('/') << ')'
         result = nil
         until result
-            answer = gets.chomp
+            answer = Readline.readline '  > '
             answer = answer.empty? ? default.to_s : answer
             result = options.select { |option| 
                 option.to_s[0,1].capitalize == answer[0,1].capitalize
@@ -197,6 +217,8 @@ module Interface
                 options.map{|o|o.to_s[0,1]}.join(', ') unless result
                 
         end
+        Interface.pre ' => ' + result.to_s.green
+        puts
         result
     end
 
@@ -245,25 +267,19 @@ module Content
     in a unified manner Lord manages admin tools.
     '
 
-    HOMEBREW_CUSTOMIZING = '
-    Homebrew prefix:
-
+    HOMEBREW_HOME = '
         ✔ home:     ~/Homebrew/
         ✔ library:  ~/Library/Homebrew/
         ✔ user:     (defined by yourself)
     '
 
-    ME_CUSTOMIZING = '
-    Home of Me:
-
+    ME_HOME = '
         ✔ home:     ~/Me/
         ✔ library:  ~/Library/Me/
         ✔ user:     (defined by yourself)
     '
 
-    LORD_CUSTOMIZING = '
-    Home of Lord:
-
+    LORD_HOME = '
         ✔ home:     ~/Lord/
         ✔ library:  ~/Library/Lord/
         ✔ user:     (defined by yourself)
@@ -287,9 +303,34 @@ module Content
 end
 
 def test
+    # Readline.completion_append_character = nil 
+    # Readline.completion_proc = Proc.new do |str| Dir[str+'*'].grep(/^#{Regexp.escape(str)}/) end
+    Readline.pre_input_hook = proc {
+        Readline.insert_text '/Users/ElmarHinz'
+        Readline.redisplay
+    }
+    line = Readline.readline('> ', true)
+    p line
 end
 
-# test; exit
+class String
+    def red 
+        "\033[1;31m" + self + "\033[0m"
+    end
+
+    def green
+        "\033[1;32m" + self  + "\033[0m"
+    end
+
+    def yellow
+        "\033[1;33m" +  self + "\033[0m"
+    end
+
+    def blue
+        "\033[1;34m" + self + "\033[0m"
+    end
+
+end
 
 MeLordBootstrapper.new.main
 
