@@ -49,7 +49,7 @@ class MeLordBootstrapper
     def home? title, intro, directory
         Interface.h3 title
         Interface.pre intro
-        taste = Interface.query? 'Select your installation type!', [:home, :library, :user], :home 
+        taste = Interface.query? 'Select your installation type!', [:home, :library, :user, :volume], :home 
         if taste == :home then
             home = @home  + directory
         elsif taste == :library then
@@ -57,6 +57,10 @@ class MeLordBootstrapper
         elsif taste == :user then
             text = 'Please set your path (without the trailing directory "%s")'
             path =  path?(sprintf(text, directory), @home)
+            home = path + directory
+        elsif taste == :volume then
+            text = 'Please set your path (without the trailing directory "%s")'
+            path =  path?(sprintf(text, directory), '/Volumes/')
             home = path + directory
         end
         Interface.pre ' => Home: ' + home.green
@@ -141,11 +145,11 @@ module Interface
 
     def self.bullet(status, title , text = NIL)
         prefixes = {} 
-        prefixes[:success] = "\t\033[1;32m✔ "
-        prefixes[:warn]    = "\t\033[1;33m➜ "
-        prefixes[:error]   = "\t\033[1;31m✖ "
+        prefixes[:success] = "    \33[1;32m✔ "
+        prefixes[:warn]    = "    \33[1;33m➜ "
+        prefixes[:error]   = "    \33[1;31m✖ "
         puts prefixes[status] << title << "\033[0m" 
-        puts "\t" << text if text
+        puts "        " << text if text
     end
 
     def self.pre text
@@ -205,7 +209,7 @@ module Interface
             option.to_s
         }
         puts
-        puts " ➜  " + question << ' (' << displayed_options.join('/') << ')'
+        puts " ➜  " + question << ' (' << displayed_options.join('|') << ')'
         result = nil
         until result
             answer = Readline.readline '  > '
@@ -220,6 +224,25 @@ module Interface
         Interface.pre ' => ' + result.to_s.green
         puts
         result
+    end
+
+end
+
+class String
+    def red 
+        "\033[1;31m" + self + "\033[0m"
+    end
+
+    def green
+        "\033[1;32m" + self  + "\033[0m"
+    end
+
+    def yellow
+        "\033[1;33m" +  self + "\033[0m"
+    end
+
+    def blue
+        "\033[1;34m" + self + "\033[0m"
     end
 
 end
@@ -271,18 +294,21 @@ module Content
         ✔ home:     ~/Homebrew/
         ✔ library:  ~/Library/Homebrew/
         ✔ user:     (defined by yourself)
+        ✔ volume:   (volume, i.e. USB stick) 
     '
 
     ME_HOME = '
         ✔ home:     ~/Me/
         ✔ library:  ~/Library/Me/
         ✔ user:     (defined by yourself)
+        ✔ volume:   (volume, i.e. USB stick) 
     '
 
     LORD_HOME = '
         ✔ home:     ~/Lord/
         ✔ library:  ~/Library/Lord/
         ✔ user:     (defined by yourself)
+        ✔ volume:   (volume, i.e. USB stick) 
     '
 
     PREPARATIONS = '
@@ -311,25 +337,6 @@ def test
     }
     line = Readline.readline('> ', true)
     p line
-end
-
-class String
-    def red 
-        "\033[1;31m" + self + "\033[0m"
-    end
-
-    def green
-        "\033[1;32m" + self  + "\033[0m"
-    end
-
-    def yellow
-        "\033[1;33m" +  self + "\033[0m"
-    end
-
-    def blue
-        "\033[1;34m" + self + "\033[0m"
-    end
-
 end
 
 MeLordBootstrapper.new.main
