@@ -20,7 +20,11 @@ class MeLordBootstrapper
     def init
         @timestamp = Time.now.strftime('%Y-%m-%d_%H-%M-%S')
         @home = ENV.fetch('HOME')
-        @library = @home + '/Library'
+        @bashrc = '.bashrc'
+        @bash_profile = '.bash_profile'
+        @bashrc_fully = @home + '/' + @bashrc
+        @bash_profile_fully = @home + '/' + @bash_profile
+        @home_library = @home + '/Library'
     end
 
     def intro
@@ -53,7 +57,7 @@ class MeLordBootstrapper
         if taste == :home then
             home = @home  + directory
         elsif taste == :library then
-            home = @library + directory
+            home = @home_library + directory
         elsif taste == :user then
             text = 'Please set your path (without the trailing directory "%s")'
             path =  path?(sprintf(text, directory), @home)
@@ -85,12 +89,12 @@ class MeLordBootstrapper
         Interface.h2 'Preparations'
         Interface.pre Content::PREPARATIONS
         Interface.confirm?
-        [@home + '/.bashrc', @home + '/.bash_profile'].each do |filename|
+        [@bashrc_fully, @bash_profile_fully].each do |filename|
             basename = File.basename filename
             dirname = File.dirname filename
             backupbase = basename + '.backup.' + @timestamp
             backupfile = dirname + '/' + backupbase 
-            if File.exist? filename
+            if File.exist? filename or File.symlink? filename
                 Interface.h3 'Preparations: ' + basename
                 Interface.pre sprintf(Content::BACKUPINFO, filename, backupbase) 
                 answer = Interface.query? ('Rename ' + basename + ' -> ' + backupbase + '?'), [:yes, :stop], :yes
@@ -107,6 +111,12 @@ class MeLordBootstrapper
     end
 
     def reconfigure
+        Divers.prependPATH @homebrew_home + '/bin', @bashrc_fully 
+        Divers.prependPATH @lord_home + '/bin', @bashrc_fully if @install_lord 
+        Divers.prependPATH @me_home + '/bin', @bashrc_fully if @install_me
+        Dir.chdir(@home) do
+            File.symlink @bashrc, @bash_profile
+        end
     end
 
     def homebrew
@@ -123,6 +133,13 @@ class MeLordBootstrapper
         exit
     end
 
+end
+
+module Divers
+    def self.prependPATH prependix, dotfile
+        appendix = sprintf('export PATH="%s:$PATH"' + "\n", prependix)
+        File.open(dotfile, 'a') { |f| f.write(appendix) }
+    end
 end
 
 module Interface
