@@ -1,23 +1,38 @@
-#! /usr/bin/env ruby
+# #! /usr/bin/env ruby
 # vim: tabstop=4 shiftwidth=4 expandtab fdm=syntax
 
 require 'time'
-require "readline"
+require 'readline'
+require 'fileutils'
 
 class MeLordBootstrapper
 
     def main
-        init
-        intro
-        homes
-        backup
-        reconfigure
-        homebrew
-        ansible
-        report
+        begin
+            init
+            intro
+            homes
+            backup
+            reconfigure
+            homebrew
+            ansible
+            lord if @install_lord
+            me if @install_me
+            report
+        rescue Interrupt
+            rollback
+        rescue Exception
+            rollback
+            raise
+        end
     end
 
     def init
+        @git_repo = 'https://github.com/Homebrew/homebrew.git'
+        @lord_repo = 'https://github.com/elmar-hinz/OSX.Lord.git'
+        @me_repo = 'https://github.com/elmar-hinz/OSX.Me.git'
+        @backup = {}
+        @installed = [] 
         @timestamp = Time.now.strftime('%Y-%m-%d_%H-%M-%S')
         @home = ENV.fetch('HOME')
         @bashrc = '.bashrc'
@@ -42,6 +57,8 @@ class MeLordBootstrapper
     def homes
         Interface.h2 'Customization'
         @homebrew_home = home? 'Homebrew Prefix', Content::HOMEBREW_HOME, '/Homebrew'
+        @homebrew_temp = @homebrew_home + '/Temp'
+        @homebrew_cache = @home + '/Library/Caches/Homebrew'
         if @install_lord == :yes then
             @lord_home = home? 'Home of Lord', Content::LORD_HOME, '/Lord' 
         end
@@ -87,57 +104,158 @@ class MeLordBootstrapper
 
     def backup
         Interface.h2 'Preparations'
-        Interface.pre Content::PREPARATIONS
-        Interface.confirm?
-        [@bashrc_fully, @bash_profile_fully].each do |filename|
+        Interface.pre Content::BACKUP
+        list = [@bashrc_fully, @bash_profile_fully, @homebrew_home]
+        list << @lord_home if @install_lord
+        list << @me_home if @install_me
+        list.each do |filename|
             basename = File.basename filename
             dirname = File.dirname filename
             backupbase = basename + '.backup.' + @timestamp
             backupfile = dirname + '/' + backupbase 
             if File.exist? filename or File.symlink? filename
-                Interface.h3 'Preparations: ' + basename
-                Interface.pre sprintf(Content::BACKUPINFO, filename, backupbase) 
-                answer = Interface.query? ('Rename ' + basename + ' -> ' + backupbase + '?'), [:yes, :stop], :yes
-                fatal 'STOP', 'You stopped bootstrapping.' if answer == :stop
                 begin
                     File.rename filename, backupfile
                     Interface.success 'Moving ' + filename,  "to " + backupfile 
-                rescue SystemCallError
-                    fatal 'Moving ' + filename,  "to " + backupfile 
+                    @backup[backupfile] = filename
+                rescue Exception
+                    Interface.fatal 'Moving ' + filename,  "to " + backupfile 
+                    raise
                 end
-                Interface.confirm? 
             end
         end
+        Interface.success 'Backups done'
+        Interface.confirm?
     end
 
     def reconfigure
-        Divers.prependPATH @homebrew_home + '/bin', @bashrc_fully 
-        Divers.prependPATH @lord_home + '/bin', @bashrc_fully if @install_lord 
-        Divers.prependPATH @me_home + '/bin', @bashrc_fully if @install_me
-        Dir.chdir(@home) do
-            File.symlink @bashrc, @bash_profile
+        @installed << @bashrc_fully << @bash_profile_fully
+        Interface.h2 'Installation'
+        Interface.p 'Reconfiguring dotfiles'
+        begin
+            Dotfiles.prependPATH @homebrew_home + '/sbin', @bashrc_fully 
+            Dotfiles.prependPATH @homebrew_home + '/bin', @bashrc_fully 
+            Dotfiles.prependPATH @lord_home + '/bin', @bashrc_fully if @install_lord 
+            Dotfiles.prependPATH @me_home + '/bin', @bashrc_fully if @install_me
+            Dotfiles.export 'HOMEBREW_PREFIX', @homebrew_home, @bashrc_fully
+            Dotfiles.export 'HOMEBREW_TEMP', @homebrew_temp, @bashrc_fully
+            Dotfiles.export 'HOMEBREW_CACHE', @homebrew_cache, @bashrc_fully
+            Dir.chdir(@home) do
+                File.symlink @bashrc, @bash_profile
+            end
+        rescue Exception
+            Interface.fatal 'Could not reconfigure dotiles'
+            raise
         end
+        Interface.success 'Reconfigured dotfiles'
+        Interface.p 'Sourcing dotfiles'
+        begin
+            ENV.replace(eval(`bash -c 'source #{@bashrc_fully} && ruby -e "p ENV"'`))
+        rescue Exception
+            Interface.fatal 'Could not resource dotfiles'
+            raise
+        end
+        Interface.success 'Sourced dotfiles'
     end
 
     def homebrew
+        @installed << ENV['HOMEBREW_PREFIX']
+        cmd = "git clone #{@git_repo}  #{ENV['HOMEBREW_PREFIX']}"
+        Interface.p 'Cloning Homebrew'
+        begin
+            raise unless system(cmd)
+        rescue Exception 
+            Interface.fatal 'Could not clone Homebrew', cmd
+            raise
+        end
+        Interface.success 'Cloned Homebrew', 'into ' + ENV['HOMEBREW_PREFIX']
+        begin
+            Dir.mkdir(ENV['HOMEBREW_TEMP'])
+        rescue Exception 
+            Interface.fatal 'Could not create: ', ENV['HOMEBREW_TEMP']
+            raise
+        end
     end
     
     def ansible
+        cmd = 'brew install ansible'
+        Interface.p 'Brewing Ansible'
+        begin
+            raise unless system(cmd)
+        rescue Exception 
+            Interface.fatal 'Could not brew Ansible', cmd
+            raise
+        end
+        Interface.success 'Brewed Ansible'
+    end
+
+    def lord
+        @installed << @lord_home
+        cmd = "git clone #{@lord_repo}  #{@lord_home}"
+        Interface.p 'Cloning Lord'
+        begin
+            raise unless system(cmd)
+        rescue Exception 
+            Interface.fatal 'Could not clone Lord', cmd
+            raise
+        end
+        Interface.success 'Cloned Lord', 'into ' + @lord_home 
+    end
+
+    def me
+        @installed << @me_home
+        cmd = "git clone #{@me_repo}  #{@me_home}"
+        Interface.p 'Cloning Me'
+        begin
+            raise unless system(cmd)
+        rescue Exception 
+            Interface.fatal 'Could not clone Me', cmd
+            raise
+        end
+        Interface.success 'Cloned Me', 'into ' + @me_home 
     end
 
     def report
+        Interface.p 'DONE'
+        Interface.p 'Now is your last chance to interrup and restore from backup. ' + '[CTRL-C]'.blue
+        Interface.confirm? 'To accept the installation '
     end
 
-    def fatal title, text
-        Interface.fatal title, text
-        exit
+    def rollback
+            Interface.h2 'Interrupt', false
+            Interface.p 'Rolling back'
+            @installed.each do |target|
+                begin
+                    if File.exist? target or File.symlink? target then
+                        FileUtils.rm_rf target
+                    end
+                rescue Exception
+                    Interface.fatal 'The rollback did fail: delete ' + target
+                    raise 
+                end
+            end
+            @backup.each do |backup, target|
+                begin
+                    File.rename backup, target
+                rescue Exception
+                    Interface.fatal 'The rollback did fail: rename ' + backup
+                    raise 
+                end
+            end
+            Interface.success 'Original state of system'
     end
 
 end
 
-module Divers
+module Dotfiles
+
     def self.prependPATH prependix, dotfile
         appendix = sprintf('export PATH="%s:$PATH"' + "\n", prependix)
+        File.open(dotfile, 'a') { |f| f.write(appendix) }
+    end
+
+    def self.export key, value, dotfile
+        appendix = sprintf('export %s="%s"' + "\n", key, value)
         File.open(dotfile, 'a') { |f| f.write(appendix) }
     end
 end
@@ -177,21 +295,21 @@ module Interface
         puts '    ' + text.strip.gsub("\n", ' ')
     end
 
-    def self.h1 title
-        self.h title, '+'
+    def self.h1 title, clear = true
+        self.h title, '+', clear
     end
 
-    def self.h2 title
-        self.h title, '-'
+    def self.h2 title, clear = true
+        self.h title, '-', clear
     end
 
-    def self.h3 title
-        self.h title, '.'
+    def self.h3 title, clear = true
+        self.h title, '.', clear
     end
 
-    def self.h title, char
+    def self.h title, char, clear = true
         width = 80
-        system "clear"
+        system "clear" if clear
         puts
         puts
         puts
@@ -202,6 +320,7 @@ module Interface
     end
 
     def self.confirm? question = '' 
+        puts
         if question.empty? then
             puts ' ➜  Hit ' + '[ENTER]'.green
         else     
@@ -272,10 +391,10 @@ module Content
         ✔ Homebrew
         ✔ Ansible
 
-    I offer you the possibility to install two optional admin tools:
+    You have the option to install two additional admin tools:
 
-        ✔ Me
-        ✔ Lord
+        ✔ Me (stable)
+        ✔ Lord (early)
     '
 
     ABOUT_ME = '
@@ -328,32 +447,15 @@ module Content
         ✔ volume:   (volume, i.e. USB stick) 
     '
 
-    PREPARATIONS = '
-    To set up a clean environment for bootstrapping
-    very few preparations are required now. 
+    BACKUP = '
+    I backup files and directories if they already exist.
 
-    I will backup "~/.bash_profile" and "~/.bashrc" for you.
-    You will have to give your confirmation in each step.
-    '
-
-    BACKUPINFO = '
-    A file "%s" is existing.
-    I want to rename it to "%s".
-
-    Enter stop to quit bootstrapping.
+    Interrupt ' + '[CTRL-C]'.blue + ' to restore from backup at any time of this script.
     '
 
 end
 
 def test
-    # Readline.completion_append_character = nil 
-    # Readline.completion_proc = Proc.new do |str| Dir[str+'*'].grep(/^#{Regexp.escape(str)}/) end
-    Readline.pre_input_hook = proc {
-        Readline.insert_text '/Users/ElmarHinz'
-        Readline.redisplay
-    }
-    line = Readline.readline('> ', true)
-    p line
 end
 
 MeLordBootstrapper.new.main
